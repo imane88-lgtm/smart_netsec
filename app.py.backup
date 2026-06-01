@@ -1,0 +1,451 @@
+# -*- coding: utf-8 -*-
+from intelligence import (
+    CorrelationEngine, RiskEngine, BehaviorDetector,
+    generer_recommandations, get_timeline,
+    expliquer_alerte, simuler_attaque
+)
+
+correlation_engine = CorrelationEngine()
+risk_engine        = RiskEngine()
+behavior_detector  = BehaviorDetector()
+from supervision import (
+    init_supervision, get_snapshot,
+    demarrer_monitoring, get_historique_supervision
+)
+from firewall import (
+    init_firewall, block_ip, unblock_ip,
+    get_firewall_stats, traiter_alertes_suricata,
+    add_whitelist
+)
+from suricata_reader import (
+    init_suricata_table, get_suricata_alertes,
+    get_suricata_stats, importer_alertes_suricata,
+    simuler_alertes_test
+)
+from flask import (
+    Flask, render_template, jsonify,
+    redirect, url_for, request, session, send_file
+)
+from functools import wraps
+import sqlite3
+import threading
+import subprocess
+import json
+
+from database     import init_db, get_appareils, get_alertes, get_historique_scans
+from auth         import (
+    init_users, verifier_login,
+    changer_mot_de_passe, creer_utilisateur,
+    lister_utilisateurs, deverrouiller_compte
+)
+from rapport_pdf  import generer_rapport
+from reponse_auto import init_blocages, bloquer_ip, debloquer_ip
+
+app = Flask(__name__)
+app.secret_key = "smartnetsec_secret_2025"
+
+from ai_assistant import AIAssistant
+ai = AIAssistant()
+import os
+import base64
+import face_recognition
+from flask import request, jsonify
+
+KNOWN_FACE = "known_faces/user1.jpg"
+
+# Décorateurs
+# ──────────────────────────────────────────────
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if "user" not in session:
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return decorated
+
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if "user" not in session:
+            return redirect(url_for("login"))
+        if session["user"]["role"] != "admin":
+            return render_template(
+                "login.html",
+                error="⛔ Accès réservé aux administrateurs"
+            )
+        return f(*args, **kwargs)
+    return decorated
+
+
+# ──────────────────────────────────────────────
+# Login / Logout
+# ──────────────────────────────────────────────
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if "user" in session:
+        return redirect(url_for("dashboard"))
+
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+
+        if not username or not password:
+            return render_template(
+                "login.html",
+                error="⚠️ Veuillez remplir tous les champs"
+            )
+
+        user, message = verifier_login(username, password)
+
+        if user:
+            session.permanent = True
+            session["user"] = {
+                "id":       user["id"],
+                "username": user["username"],
+                "role":     user["role"],
+            }
+            return redirect(url_for("dashboard"))
+        else:
+            return render_template("login.html", error=message)
+
+    return render_template("login.html")
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
+# ──────────────────────────────────────────────
+# Dashboard
+# ──────────────────────────────────────────────
+@app.route("/")
+@login_required
+def dashboard():
+    appareils = get_appareils()
+    alertes   = get_alertes()
+    scans     = get_historique_scans()
+
+    for a in appareils:
+        if isinstance(a.get("ports_ouverts"), str):
+            a["ports_ouverts"] = json.loads(a["ports_ouverts"])
+        if isinstance(a.get("ports_risques"), str):
+            a["ports_risques"] = json.loads(a["ports_risques"])
+
+    scores      = [a["score"] for a in appareils if a.get("score")]
+    score_moyen = round(sum(scores) / len(scores)) if scores else 0
+
+    stats = {
+        "nb_appareils":    len(appareils),
+        "score_moyen":     score_moyen,
+        "nb_safe":         sum(1 for a in appareils if a.get("score", 0) >= 80),
+        "nb_medium":       sum(1 for a in appareils if 50 <= a.get("score", 0) < 80),
+        "nb_danger":       sum(1 for a in appareils if a.get("score", 0) < 50),
+        "nb_alertes":      len(alertes),
+        "nb_alertes_high": sum(1 for al in alertes
+                               if al.get("niveau") in ["HIGH", "CRITICAL"]),
+        "nb_scans":        len(scans),
+    }
+
+    # Blocages
+    try:
+        conn = sqlite3.connect("smart_netsec.db")
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM blocages WHERE actif=1")
+        blocages = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+    except:
+        blocages = []
+
+    # ── Suricata ──
+    suricata_alertes = get_suricata_alertes(limit=10)
+    suricata_stats   = get_suricata_stats()
+
+    return render_template(
+        "index.html",
+        appareils=appareils,
+        alertes=alertes[:10],
+        stats=stats,
+        scans=scans[:5],
+        blocages=blocages,
+        user=session["user"],
+        suricata_alertes=suricata_alertes,
+        suricata_stats=suricata_stats,
+    )
+
+# ──────────────────────────────────────────────
+# Settings
+# ──────────────────────────────────────────────
+@app.route("/settings")
+@admin_required
+def settings():
+    users = lister_utilisateurs()
+    return render_template(
+        "settings.html",
+        user=session["user"],
+        users=users,
+        msg_success=request.args.get("success"),
+        msg_error=request.args.get("error"),
+    )
+
+@app.route("/settings/changer-mdp", methods=["POST"])
+@admin_required
+def changer_mdp():
+    ancien  = request.form.get("ancien_pwd", "")
+    nouveau = request.form.get("nouveau_pwd", "")
+    confirm = request.form.get("confirm_pwd", "")
+
+    if nouveau != confirm:
+        return redirect(url_for("settings") +
+                        "?error=Les mots de passe ne correspondent pas")
+
+    succes, msg = changer_mot_de_passe(
+        session["user"]["username"], ancien, nouveau
+    )
+    if succes:
+        return redirect(url_for("settings") + "?success=" + msg)
+    return redirect(url_for("settings") + "?error=" + msg)
+
+
+@app.route("/settings/creer-user", methods=["POST"])
+@admin_required
+def creer_user():
+    username = request.form.get("username", "").strip()
+    password = request.form.get("password", "")
+    role     = request.form.get("role", "user")
+
+    succes, msg = creer_utilisateur(username, password, role)
+    if succes:
+        return redirect(url_for("settings") + "?success=" + msg)
+    return redirect(url_for("settings") + "?error=" + msg)
+
+
+@app.route("/settings/deverrouiller/<username>")
+@admin_required
+def deverrouiller(username):
+    succes, msg = deverrouiller_compte(username)
+    return redirect(url_for("settings") + "?success=" + msg)
+
+
+# ──────────────────────────────────────────────
+# Scan
+# ──────────────────────────────────────────────
+scan_en_cours = {"actif": False}
+
+@app.route("/lancer-scan")
+@admin_required
+def lancer_scan():
+    global scan_en_cours
+    if scan_en_cours["actif"]:
+        return jsonify({"status": "busy"})
+
+    def
+
+    def run_scan():
+        scan_en_cours["actif"] = True
+        try:
+            subprocess.run(
+                ["sudo", "python3", "scan_complet.py"],
+                cwd="/home/imane/smart_netsec"
+            )
+        finally:
+            scan_en_cours["actif"] = False
+
+    threading.Thread(target=run_scan, daemon=True).start()
+    return jsonify({"status": "started"})
+
+
+@app.route("/api/scan-status")
+@login_required
+def scan_status():
+    return jsonify(scan_en_cours)
+
+
+@app.route("/generer-rapport")
+@admin_required
+def telecharger_rapport():
+    path = generer_rapport(output_path="rapport_securite.pdf")
+    return send_file(path, as_attachment=True)
+
+
+@app.route("/api/firewall/bloquer/<ip>")
+@admin_required
+def api_bloquer(ip):
+    succes, msg = block_ip(ip, "Blocage depuis dashboard")
+    return jsonify({"status": "ok" if succes else "erreur", "msg": msg})
+
+
+@app.route("/api/firewall/debloquer/<ip>")
+@admin_required
+def api_debloquer(ip):
+    succes, msg = unblock_ip(ip)
+    return jsonify({"status": "ok" if succes else "erreur", "msg": msg})
+
+
+@app.route("/api/firewall/whitelist/<ip>")
+@admin_required
+def api_whitelist(ip):
+    succes, msg = add_whitelist(ip, "Ajout depuis dashboard")
+    return jsonify({"status": "ok" if succes else "erreur", "msg": msg})
+
+
+@app.route("/api/firewall/stats")
+@login_required
+def api_firewall_stats():
+    return jsonify(get_firewall_stats())
+
+
+@app.route("/api/firewall/traiter-suricata")
+@admin_required
+def api_traiter_suricata():
+    actions = traiter_alertes_suricata()
+    return jsonify({"actions": actions})
+
+
+@app.route("/api/supervision")
+@login_required
+def api_supervision():
+    return jsonify(get_snapshot())
+
+
+@app.route("/api/appareils")
+@login_required
+def api_appareils():
+    appareils = get_appareils()
+    for a in appareils:
+        if isinstance(a.get("ports_ouverts"), str):
+            a["ports_ouverts"] = json.loads(a["ports_ouverts"])
+    return jsonify(appareils)
+
+
+@app.route("/api/alertes")
+@login_required
+def api_alertes():
+    return jsonify(get_alertes())
+
+
+@app.route("/api/suricata")
+@login_required
+def api_suricata():
+    return jsonify(get_suricata_alertes(limit=50))
+
+
+@app.route("/api/suricata/stats")
+@login_required
+def api_suricata_stats():
+    return jsonify(get_suricata_stats())
+
+
+@app.route("/suricata/importer")
+@admin_required
+def importer_suricata():
+    try:
+        nb = importer_alertes_suricata()
+        if nb == 0:
+            nb = simuler_alertes_test()
+    except:
+        nb = simuler_alertes_test()
+    return jsonify({"status": "ok", "importees": nb})
+
+
+@app.route("/api/intelligence/risk")
+@login_required
+def api_risk():
+    return jsonify(risk_engine.calculer_score_global())
+
+
+@app.route("/api/intelligence/correlations")
+@login_required
+def api_correlations():
+    return jsonify(correlation_engine.get_correlation_events())
+
+
+@app.route("/api/intelligence/anomalies")
+@login_required
+def api_anomalies():
+    return jsonify(behavior_detector.detecter_anomalies())
+
+
+@app.route("/api/intelligence/recommandations")
+@login_required
+def api_recommandations():
+    return jsonify(generer_recommandations())
+
+
+@app.route("/api/intelligence/timeline")
+@login_required
+def api_timeline():
+    return jsonify(get_timeline(limit=30))
+
+
+@app.route("/api/simulation/attaque")
+@admin_required
+def api_simulation():
+    resultats = simuler_attaque()
+    return jsonify({"resultats": resultats})
+
+
+@app.route("/ai/chat", methods=["POST"])
+@login_required
+def ai_chat():
+    try:
+        data    = request.get_json(force=True)
+        message = (data.get("message") or "").strip()
+        if not message:
+            return jsonify({"reponse": "Message vide."}), 400
+        reponse = ai.repondre(message)
+        return jsonify({"reponse": reponse})
+    except Exception as e:
+        return jsonify({"reponse": f"Erreur : {str(e)}"}), 500
+
+
+@app.route("/ai/resume")
+@login_required
+def ai_resume():
+    try:
+        return jsonify(ai.get_resume_systeme())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/blocages")
+@login_required
+def api_blocages():
+    try:
+        conn = sqlite3.connect("smart_netsec.db")
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM blocages ORDER BY date_blocage DESC")
+        blocages = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return jsonify(blocages)
+    except:
+        return jsonify([])
+
+
+from security_test import run_security_test
+
+@app.route("/api/security-test")
+@admin_required
+def api_security_test():
+    try:
+        result = run_security_test(verbose=False)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+if __name__ == "__main__":
+    init_db()
+    init_users()
+    init_blocages()
+    init_firewall()
+    init_supervision()
+    init_suricata_table()
+    correlation_engine._init_table()
+    demarrer_monitoring(intervalle=30)
+    print("\n🚀 Smart NetSec SOC — Démarré")
+    print("🌐 http://127.0.0.1:5000\n")
+    app.run(debug=True, host="0.0.0.0", port=5000)

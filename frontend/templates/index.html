@@ -1,0 +1,1413 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart NetSec SOC — Dashboard</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="/static/css/dashboard.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+
+<style>
+.fw-tab-btn {
+  padding: 0.55rem 1rem;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s;
+}
+.fw-tab-btn:hover { color: var(--text); }
+.fw-tab-active {
+  border-bottom-color: var(--blue) !important;
+  color: var(--blue) !important;
+}
+</style>
+</head>
+<body class="dashboard-body">
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <a class="sidebar-logo" href="/">
+    <div class="logo-icon"><i class="fas fa-shield-alt"></i></div>
+    <div class="logo-text">
+      <div class="logo-title">Smart NetSec SOC</div>
+      <div class="logo-sub">Security Operations Center</div>
+    </div>
+  </a>
+  <nav class="sidebar-nav">
+    <div class="nav-section">Dashboard</div>
+    <a class="nav-item active" id="nav-dashboard" onclick="showPage('dashboard',this);return false;" href="#">
+      <i class="fas fa-tachometer-alt"></i><span>Overview</span>
+    </a>
+    <a class="nav-item" id="nav-network-topology" onclick="showPage('network-topology',this);return false;" href="#">
+      <i class="fas fa-project-diagram"></i><span>Network Map</span>
+    </a>
+    <div class="nav-section">Détection</div>
+    <a class="nav-item" id="nav-alerts" onclick="showPage('alerts',this);return false;" href="#">
+      <i class="fas fa-bell"></i><span>Alerts</span>
+      {% if stats.nb_alertes_high > 0 %}<span class="nav-badge">{{ stats.nb_alertes_high }}</span>{% endif %}
+    </a>
+    <a class="nav-item" id="nav-incidents" onclick="showPage('incidents',this);return false;" href="#">
+      <i class="fas fa-exclamation-triangle"></i><span>Incidents</span>
+    </a>
+    <a class="nav-item" id="nav-threat-intel" onclick="showPage('threat-intel',this);return false;" href="#">
+      <i class="fas fa-crosshairs"></i><span>Threat Intel</span>
+    </a>
+    <a class="nav-item" id="nav-mitre" onclick="showPage('mitre',this);return false;" href="#">
+      <i class="fas fa-sitemap"></i><span>MITRE ATT&amp;CK</span>
+    </a>
+    <div class="nav-section">Sécurité</div>
+    <a class="nav-item" id="nav-devices" onclick="showPage('devices',this);return false;" href="#">
+      <i class="fas fa-desktop"></i><span>Devices</span>
+    </a>
+    <a class="nav-item" id="nav-firewall" onclick="showPage('firewall',this);return false;" href="#">
+      <i class="fas fa-fire-alt"></i><span>Firewall</span>
+    </a>
+    <a class="nav-item" id="nav-assets" onclick="showPage('assets',this);return false;" href="#">
+      <i class="fas fa-server"></i><span>Asset Inventory</span>
+    </a>
+    <div class="nav-section">Analyse</div>
+    <a class="nav-item" id="nav-monitoring" onclick="showPage('monitoring',this);return false;" href="#">
+      <i class="fas fa-chart-line"></i><span>Monitoring</span>
+    </a>
+    <a class="nav-item" id="nav-smart-correlations" onclick="showPage('smart-correlations',this);return false;" href="#">
+      <i class="fas fa-brain"></i><span>Correlations</span>
+    </a>
+    <a class="nav-item" id="nav-soc-terminal" onclick="showPage('soc-terminal',this);return false;" href="#">
+      <i class="fas fa-terminal"></i><span>SOC Terminal</span>
+    </a>
+    <a class="nav-item" id="nav-timeline" onclick="showPage('timeline',this);return false;" href="#">
+      <i class="fas fa-stream"></i><span>Timeline</span>
+    </a>
+    <a class="nav-item" id="nav-ai-page" onclick="showPage('ai-page',this);return false;" href="#">
+      <i class="fas fa-robot"></i><span>AI Analysis</span>
+    </a>
+    <a class="nav-item" id="nav-reports" onclick="showPage('reports',this);return false;" href="#">
+      <i class="fas fa-file-pdf"></i><span>Reports</span>
+    </a>
+    <div class="nav-section">Système</div>
+    <a class="nav-item" href="/settings">
+      <i class="fas fa-cog"></i><span>Settings</span>
+    </a>
+  </nav>
+  <div class="sidebar-user">
+    <div class="user-avatar">{{ user.username[:2].upper() }}</div>
+    <div class="user-info">
+      <div class="user-name">{{ user.username }}</div>
+      <div class="user-role">{{ user.role|capitalize }}</div>
+    </div>
+    <a href="/logout" class="user-logout" title="Déconnexion"><i class="fas fa-sign-out-alt"></i></a>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<div class="main-content">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="topbar-search">
+      <i class="fas fa-search"></i>
+      <input type="text" id="search-input" placeholder="Search SOC platform..." onkeyup="handleSearch(this.value)" autocomplete="off">
+      <span class="kbd">Ctrl K</span>
+    </div>
+    <div class="topbar-right">
+      <div class="live-badge"><span class="live-dot"></span> LIVE</div>
+      <div class="topbar-date"><i class="fas fa-calendar-alt"></i><span id="topbar-date"></span></div>
+      {% if user.role=='admin' %}
+      
+      {% endif %}
+      <button class="topbar-icon-btn" onclick="toggleHelp()" title="Aide"><i class="fas fa-question-circle"></i></button>
+      <button class="topbar-icon-btn" onclick="toggleTheme()" id="theme-btn"><i class="fas fa-moon" id="theme-icon"></i></button>
+    </div>
+  </div>
+
+  <!-- ════ PAGE: DASHBOARD ════ -->
+  <div id="page-dashboard" class="page active">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Security Overview</div>
+        <div class="page-breadcrumb">Home › <span>Dashboard</span></div>
+      </div>
+      <div style="display:flex;gap:0.5rem">
+        {% if user.role=='admin' %}
+        <button onclick="lancerScan()" id="btn-scan" class="btn btn-ghost btn-sm"><i class="fas fa-search"></i> Scanner</button>
+        {% endif %}
+        <button onclick="showPage('soc-terminal',document.getElementById('nav-soc-terminal'))" class="btn btn-ghost btn-sm"><i class="fas fa-terminal"></i> Terminal</button>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card" style="--kpi-color:var(--blue)">
+        <div class="kpi-top"><div class="kpi-label">Devices Actifs</div><div class="kpi-icon-wrap" style="background:rgba(59,130,246,0.12);color:var(--blue2)"><i class="fas fa-desktop"></i></div></div>
+        <div class="kpi-value" id="kpi-devices">{{ stats.nb_appareils }}</div>
+        <div class="kpi-bottom"><span class="kpi-trend trend-up"><i class="fas fa-arrow-up"></i> +2.5%</span><div class="sparkline-wrap"><canvas id="spark1"></canvas></div></div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:var(--red)">
+        <div class="kpi-top"><div class="kpi-label">Alertes Critiques</div><div class="kpi-icon-wrap" style="background:rgba(239,68,68,0.12);color:var(--red2)"><i class="fas fa-exclamation-triangle"></i></div></div>
+        <div class="kpi-value" id="kpi-alerts">{{ stats.nb_alertes_high }}</div>
+        <div class="kpi-bottom"><span class="kpi-trend trend-down"><i class="fas fa-arrow-down"></i> -16.7%</span><div class="sparkline-wrap"><canvas id="spark2"></canvas></div></div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:var(--purple)">
+        <div class="kpi-top"><div class="kpi-label">IP Bloquées</div><div class="kpi-icon-wrap" style="background:rgba(139,92,246,0.12);color:var(--purple2)"><i class="fas fa-ban"></i></div></div>
+        <div class="kpi-value" id="kpi-blocked">{{ blocages|length }}</div>
+        <div class="kpi-bottom"><span class="kpi-trend trend-up"><i class="fas fa-arrow-up"></i> +33%</span><div class="sparkline-wrap"><canvas id="spark3"></canvas></div></div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:var(--orange)">
+        <div class="kpi-top"><div class="kpi-label">Score Réseau</div><div class="kpi-icon-wrap" style="background:rgba(245,158,11,0.12);color:var(--orange2)"><i class="fas fa-shield-alt"></i></div></div>
+        <div class="kpi-value" style="color:{{ '#10b981' if stats.score_moyen>=80 else ('#f59e0b' if stats.score_moyen>=50 else '#ef4444') }}" id="kpi-score">{{ stats.score_moyen }}</div>
+        <div class="kpi-bottom"><span class="kpi-trend trend-up"><i class="fas fa-arrow-up"></i> +8.2%</span><div class="sparkline-wrap"><canvas id="spark4"></canvas></div></div>
+      </div>
+      <div class="kpi-card" style="--kpi-color:var(--green)">
+        <div class="kpi-top"><div class="kpi-label">Scans</div><div class="kpi-icon-wrap" style="background:rgba(16,185,129,0.12);color:var(--green2)"><i class="fas fa-search"></i></div></div>
+        <div class="kpi-value" id="kpi-scans">{{ stats.nb_scans }}</div>
+        <div class="kpi-bottom"><span class="kpi-trend trend-down"><i class="fas fa-arrow-down"></i> -28%</span><div class="sparkline-wrap"><canvas id="spark5"></canvas></div></div>
+      </div>
+    </div>
+
+    <div class="levels-grid">
+      <div class="level-card safe"><div class="level-icon"><i class="fas fa-check-circle"></i></div><div class="level-info"><span class="level-count">{{ stats.nb_safe }}</span><span class="level-label">Safe</span></div></div>
+      <div class="level-card medium"><div class="level-icon"><i class="fas fa-exclamation-circle"></i></div><div class="level-info"><span class="level-count">{{ stats.nb_medium }}</span><span class="level-label">Medium</span></div></div>
+      <div class="level-card danger"><div class="level-icon"><i class="fas fa-times-circle"></i></div><div class="level-info"><span class="level-count">{{ stats.nb_danger }}</span><span class="level-label">Danger</span></div></div>
+    </div>
+
+    <div class="charts-row">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="fas fa-chart-area" style="color:var(--blue2)"></i> Network Activity</div>
+          <div class="card-action"><i class="fas fa-calendar"></i>
+            <select id="network-period" onchange="updateNetworkChart(this.value)">
+              <option value="7">7 jours</option><option value="14">14 jours</option><option value="30">30 jours</option>
+            </select>
+          </div>
+        </div>
+        <div class="chart-wrap" style="height:210px"><canvas id="networkChart"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fas fa-chart-pie" style="color:var(--purple2)"></i> Threat Distribution</div></div>
+        <div class="chart-wrap" style="height:150px"><canvas id="threatChart"></canvas></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem;margin-top:0.6rem">
+          <div style="display:flex;align-items:center;gap:0.35rem;font-size:0.68rem"><span class="dot dot-red"></span><span style="color:var(--text2)">Critique</span><span style="margin-left:auto;font-weight:700;color:var(--red2)">{{ suricata_stats.critical }}</span></div>
+          <div style="display:flex;align-items:center;gap:0.35rem;font-size:0.68rem"><span class="dot dot-orange"></span><span style="color:var(--text2)">Élevée</span><span style="margin-left:auto;font-weight:700;color:var(--orange2)">{{ suricata_stats.high }}</span></div>
+          <div style="display:flex;align-items:center;gap:0.35rem;font-size:0.68rem"><span class="dot" style="background:#ca8a04"></span><span style="color:var(--text2)">Moyenne</span><span style="margin-left:auto;font-weight:700">{{ suricata_stats.medium }}</span></div>
+          <div style="display:flex;align-items:center;gap:0.35rem;font-size:0.68rem"><span class="dot dot-blue"></span><span style="color:var(--text2)">Faible</span><span style="margin-left:auto;font-weight:700;color:var(--blue2)">{{ suricata_stats.low }}</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="three-col">
+      <div class="card" style="text-align:center">
+        <div class="card-header"><div class="card-title"><i class="fas fa-shield-alt" style="color:var(--green2)"></i> Security Score</div></div>
+        <div class="security-score-wrap">
+          <div class="score-ring-container">
+            <svg id="score-ring-svg" viewBox="0 0 120 120"></svg>
+            <div class="score-ring-text">
+              <div class="score-ring-val" id="score-ring-val">{{ stats.score_moyen }}</div>
+              <div style="font-size:0.55rem;color:var(--text2);text-transform:uppercase;font-weight:700">/100</div>
+              <div style="font-size:0.6rem;font-weight:700;margin-top:0.1rem" id="score-ring-status">—</div>
+            </div>
+          </div>
+          <div style="font-size:0.7rem;color:var(--text2)">Score de sécurité global</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fas fa-bell" style="color:var(--red2)"></i> Alertes Récentes</div><span class="badge badge-info">{{ alertes|length }}</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Niv.</th><th>IP</th><th>Heure</th>{% if user.role=='admin' %}<th></th>{% endif %}</tr></thead>
+            <tbody>
+            {% for alerte in alertes[:6] %}
+            <tr>
+              <td><span class="badge badge-{{ 'critical' if alerte.niveau=='CRITICAL' else ('high' if alerte.niveau=='HIGH' else ('medium' if alerte.niveau=='MEDIUM' else 'low')) }}">{{ alerte.niveau[:4] }}</span></td>
+              <td><code>{{ alerte.ip }}</code></td>
+              <td style="color:var(--muted);font-size:0.65rem;white-space:nowrap">{{ alerte.date_alerte[11:16] if alerte.date_alerte else '—' }}</td>
+              {% if user.role=='admin' %}<td><button class="action-btn red" onclick="bloquerIP('{{ alerte.ip }}')" title="Bloquer"><i class="fas fa-ban"></i></button></td>{% endif %}
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="no-data">Aucune alerte</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <a class="see-all" onclick="showPage('alerts',document.getElementById('nav-alerts'));return false;" href="#">Voir toutes →</a>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fas fa-brain" style="color:var(--purple2)"></i> AI Insights</div></div>
+        <div class="insight-item">
+          <div class="insight-icon" style="background:rgba(239,68,68,0.12);color:var(--red2)"><i class="fas fa-exclamation-triangle"></i></div>
+          <div class="insight-body"><div class="insight-title">Anomalie détectée</div><div class="insight-desc" id="ins-1">Chargement...</div></div>
+          <div class="insight-time">5 min</div>
+          <i class="fas fa-chevron-right insight-arrow"></i>
+        </div>
+        <div class="insight-item">
+          <div class="insight-icon" style="background:rgba(16,185,129,0.12);color:var(--green2)"><i class="fas fa-shield-alt"></i></div>
+          <div class="insight-body"><div class="insight-title">Recommandation</div><div class="insight-desc" id="ins-2">Chargement...</div></div>
+          <div class="insight-time">15 min</div>
+          <i class="fas fa-chevron-right insight-arrow"></i>
+        </div>
+        <div class="insight-item">
+          <div class="insight-icon" style="background:rgba(59,130,246,0.12);color:var(--blue2)"><i class="fas fa-chart-line"></i></div>
+          <div class="insight-body"><div class="insight-title">Tendance</div><div class="insight-desc" id="ins-3">Chargement...</div></div>
+          <div class="insight-time">30 min</div>
+          <i class="fas fa-chevron-right insight-arrow"></i>
+        </div>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fas fa-chart-bar" style="color:var(--orange2)"></i> Severity Trends</div></div>
+        <div class="chart-wrap" style="height:200px"><canvas id="severityChart"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fas fa-network-wired" style="color:var(--cyan2)"></i> Top Protocols</div></div>
+        <div class="chart-wrap" style="height:200px"><canvas id="protocolsChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════ PAGE: NETWORK TOPOLOGY ════ -->
+  <div id="page-network-topology" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Network Topology</div><div class="page-breadcrumb">Home › <span>Network Map</span></div></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title"><i class="fas fa-project-diagram" style="color:var(--blue2)"></i> Visualisation Réseau Interactive</div><span class="badge badge-safe"><span class="live-dot" style="margin-right:4px"></span> LIVE</span></div>
+      <div class="network-topology">
+        <svg id="topology-svg" class="topology-svg" viewBox="0 0 600 280" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+      <div style="display:flex;gap:1rem;margin-top:0.75rem;flex-wrap:wrap;font-size:0.68rem;color:var(--text2)">
+        <span style="display:flex;align-items:center;gap:0.35rem"><span style="width:20px;height:2px;background:var(--blue);border-radius:2px"></span> Connexion active</span>
+        <span style="display:flex;align-items:center;gap:0.35rem"><span style="width:20px;height:2px;background:var(--red);border-radius:2px"></span> Menace détectée</span>
+        <span style="display:flex;align-items:center;gap:0.35rem"><span style="width:20px;height:2px;background:var(--border2);border-radius:2px"></span> Connexion inactive</span>
+      </div>
+    </div>
+    <div class="two-col">
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fas fa-chart-line" style="color:var(--blue2)"></i> Trafic Inbound/Outbound</div></div>
+        <div class="chart-wrap" style="height:180px"><canvas id="trafficChart"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fas fa-ethernet" style="color:var(--cyan2)"></i> Top Ports Scannés</div></div>
+        <div class="chart-wrap" style="height:180px"><canvas id="portsChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════ PAGE: INCIDENTS ════ -->
+  <div id="page-incidents" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Incident Response</div><div class="page-breadcrumb">Home › <span>Incidents</span></div></div>
+      <div style="display:flex;gap:0.5rem;font-size:0.72rem">
+        <span class="badge badge-open">2 Open</span>
+        <span class="badge badge-investigating">2 Investigating</span>
+        <span class="badge badge-resolved">1 Resolved</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title"><i class="fas fa-exclamation-triangle" style="color:var(--red2)"></i> Incidents Actifs</div></div>
+      <div id="incidents-list"><p class="no-data"><i class="fas fa-spinner fa-spin"></i> Chargement...</p></div>
+    </div>
+  </div>
+
+  <!-- ════ PAGE: THREAT INTEL ════ -->
+  <div id="page-threat-intel" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Threat Intelligence</div><div class="page-breadcrumb">Home › <span>Threat Intel</span></div></div>
+    </div>
+    <div class="two-col">
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fas fa-crosshairs" style="color:var(--red2)"></i> IPs Suspectes</div></div>
+        <div id="threat-intel-list"><p class="no-data"><i class="fas fa-spinner fa-spin"></i> Chargement...</p></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fas fa-chart-pie" style="color:var(--purple2)"></i> Predictive Analytics</div></div>
+        <div class="chart-wrap" style="height:200px"><canvas id="predictiveChart"></canvas></div>
+        <div style="font-size:0.68rem;color:var(--text2);margin-top:0.5rem;padding:0.5rem;background:var(--card2);border-radius:var(--radius-sm)">
+          <i class="fas fa-brain" style="color:var(--purple2)"></i> L'IA prédit une augmentation du trafic suspect entre 18h-22h. Recommandation : renforcer la surveillance.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════ PAGE: MITRE ATT&CK ════ -->
+  <div id="page-mitre" class="page">
+    <div class="page-header">
+      <div><div class="page-title">MITRE ATT&amp;CK</div><div class="page-breadcrumb">Home › <span>MITRE</span></div></div>
+      <div style="display:flex;gap:0.5rem;align-items:center;font-size:0.7rem">
+        <span style="display:flex;align-items:center;gap:0.3rem"><span style="width:10px;height:10px;background:var(--red);border-radius:2px;display:inline-block"></span> Active</span>
+        <span style="display:flex;align-items:center;gap:0.3rem"><span style="width:10px;height:10px;background:var(--border2);border-radius:2px;display:inline-block"></span> Inactive</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title"><i class="fas fa-sitemap" style="color:var(--blue2)"></i> Attack Chain Visualization</div></div>
+      <div id="mitre-container" class="mitre-container"></div>
+      <div style="margin-top:1rem;padding:0.75rem;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:var(--radius-sm)">
+        <div style="font-size:0.72rem;font-weight:700;color:var(--red2);margin-bottom:0.35rem"><i class="fas fa-exclamation-triangle"></i> Phases actives détectées</div>
+        <div style="font-size:0.68rem;color:var(--text2)">Initial Access · Execution · Defense Evasion — Pattern correspondant à une attaque ciblée.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════ PAGE: DEVICES ════ -->
+  <div id="page-devices" class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Devices</div>
+        <div class="page-breadcrumb">Home › <span>Devices</span></div>
+      </div>
+      <button onclick="Actions.scan()" id="btn-scan" class="btn btn-primary btn-sm">
+        <i class="fas fa-search"></i> Scanner
+      </button>
+    </div>
+
+    <div class="card" style="padding:0.65rem 1rem;margin-bottom:0.5rem">
+      <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+        <input id="dev-search" type="text"
+          placeholder="Rechercher IP, type, vendor... (Entrée pour filtrer)"
+          oninput="filterDevices()" onkeydown="if(event.key==='Enter') filterDevices()"
+          style="background:var(--card2);border:1px solid var(--border);color:var(--text);
+                 padding:0.3rem 0.7rem;border-radius:var(--radius-sm);font-size:0.78rem;
+                 outline:none;flex:1;min-width:180px">
+        <select id="dev-filter-niveau" onchange="filterDevices()"
+          style="background:var(--card2);border:1px solid var(--border);color:var(--text);
+                 padding:0.3rem 0.6rem;border-radius:var(--radius-sm);font-size:0.75rem;outline:none">
+          <option value="">Tous niveaux</option>
+          <option value="SAFE">Safe (&ge;80)</option>
+          <option value="MEDIUM">Medium (50-79)</option>
+          <option value="DANGER">Danger (&lt;50)</option>
+        </select>
+        <select id="dev-filter-type" onchange="filterDevices()"
+          style="background:var(--card2);border:1px solid var(--border);color:var(--text);
+                 padding:0.3rem 0.6rem;border-radius:var(--radius-sm);font-size:0.75rem;outline:none">
+          <option value="">Tous types</option>
+          <option value="Routeur">Routeur</option>
+          <option value="Machine Virtuelle">VM</option>
+          <option value="PC">PC/Autre</option>
+          <option value="Serveur">Serveur</option>
+        </select>
+        <button onclick="filterDevices()" class="btn btn-ghost btn-sm" style="font-size:0.75rem">
+          <i class="fas fa-filter"></i> Filtrer
+        </button>
+        <button onclick="location.reload()" class="btn btn-ghost btn-sm" style="font-size:0.75rem">
+          <i class="fas fa-sync"></i>
+        </button>
+        <span id="dev-count" style="font-size:0.72rem;color:var(--muted)"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table id="devices-table">
+          <thead>
+            <tr>
+              <th onclick="sortDevices('ip')" style="cursor:pointer">
+                IP <i class="fas fa-sort" style="font-size:0.6rem;color:var(--muted)"></i>
+              </th>
+              <th>TYPE</th>
+              <th>MAC</th>
+              <th>VENDOR</th>
+              <th>PORTS</th>
+              <th onclick="sortDevices('score')" style="cursor:pointer">
+                SCORE <i class="fas fa-sort" style="font-size:0.6rem;color:var(--muted)"></i>
+              </th>
+              <th>NIVEAU</th>
+            </tr>
+          </thead>
+          <tbody id="devices-tbody">
+            {% for a in appareils %}
+            {% set score = a.score|default(0)|int %}
+            {% set niveau = 'SAFE' if score>=80 else ('MEDIUM' if score>=50 else 'DANGER') %}
+            {% set dot = '#10b981' if score>=80 else ('#f59e0b' if score>=50 else '#ef4444') %}
+            <tr class="device-row"
+                data-ip="{{ a.ip }}"
+                data-niveau="{{ niveau }}"
+                data-type="{{ a.type_appareil|default('Inconnu') }}"
+                data-vendor="{{ a.vendor|default(a.fabricant|default('')) }}"
+                data-score="{{ score }}">
+              <td>
+                <div style="display:flex;align-items:center;gap:0.5rem">
+                  <div style="width:7px;height:7px;border-radius:50%;
+                       background:{{ dot }};flex-shrink:0"></div>
+                  <code style="font-size:0.8rem">{{ a.ip }}</code>
+                </div>
+              </td>
+              <td>
+                {% set t = a.type_appareil|default('Inconnu') %}
+                <div style="display:flex;align-items:center;gap:0.4rem">
+                  <i class="fas fa-{% if 'Routeur' in t %}network-wired{% elif 'Serveur' in t %}server{% elif 'Machine' in t %}desktop{% else %}laptop{% endif %}"
+                     style="color:var(--blue);font-size:0.7rem"></i>
+                  <span style="font-size:0.78rem">{{ t }}</span>
+                </div>
+              </td>
+              <td><code style="font-size:0.72rem;color:var(--muted)">{{ a.mac|default('—') }}</code></td>
+              <td style="font-size:0.78rem;color:var(--text2)">
+                {{ a.vendor|default(a.fabricant|default('—')) }}
+              </td>
+              <td>
+                <div class="ports-cell">
+                  <span class="port-render" data-ports="{{ a.ports_ouverts|default('[]') }}"
+                        style="display:none"></span>
+                </div>
+              </td>
+              <td>
+                <div style="display:flex;align-items:center;gap:0.5rem">
+                  <div style="width:50px;height:5px;background:var(--border);
+                       border-radius:3px;overflow:hidden">
+                    <div style="height:100%;width:{{ [score,100]|min }}%;
+                         background:{{ dot }};border-radius:3px"></div>
+                  </div>
+                  <span style="font-size:0.78rem;font-weight:700;color:{{ dot }}">{{ score }}</span>
+                </div>
+              </td>
+              <td>
+                <span class="badge badge-{{ 'safe' if niveau=='SAFE' else ('medium' if niveau=='MEDIUM' else 'critical') }}">
+                  {{ niveau }}
+                </span>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="no-data">
+              <i class="fas fa-search"></i> Aucun appareil — lancez un scan
+            </td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="page-firewall" class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Firewall — nftables</div>
+        <div class="page-breadcrumb">Home › <span>Firewall</span></div>
+      </div>
+      {% if user.role=='admin' %}
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+        <button onclick="FW.openBlockModal()" class="btn btn-danger btn-sm">
+          <i class="fas fa-ban"></i> Bloquer IP
+        </button>
+        <button onclick="FW.openRuleModal()" class="btn btn-primary btn-sm">
+          <i class="fas fa-plus"></i> Ajouter règle
+        </button>
+        <button onclick="FW.autoResponse()" class="btn btn-sm"
+          style="background:var(--orange);color:#fff">
+          <i class="fas fa-bolt"></i> Réponse Auto
+        </button>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- KPIs -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.75rem;margin-bottom:0.75rem">
+      <div class="card" style="text-align:center;padding:1rem">
+        <div style="font-size:1.8rem;font-weight:800;color:var(--red)" id="fw-blocked">0</div>
+        <div style="font-size:0.62rem;color:var(--muted);text-transform:uppercase;font-weight:700">IPS BLOQUÉES</div>
+      </div>
+      <div class="card" style="text-align:center;padding:1rem">
+        <div style="font-size:1.8rem;font-weight:800;color:var(--green)" id="fw-wl">0</div>
+        <div style="font-size:0.62rem;color:var(--muted);text-transform:uppercase;font-weight:700">WHITELIST</div>
+      </div>
+      <div class="card" style="text-align:center;padding:1rem">
+        <div style="font-size:1.8rem;font-weight:800;color:var(--orange)" id="fw-bl">0</div>
+        <div style="font-size:0.62rem;color:var(--muted);text-transform:uppercase;font-weight:700">BLACKLIST</div>
+      </div>
+      <div class="card" style="text-align:center;padding:1rem">
+        <div style="font-size:1.8rem;font-weight:800;color:var(--blue)" id="fw-rules-count">0</div>
+        <div style="font-size:0.62rem;color:var(--muted);text-transform:uppercase;font-weight:700">RÈGLES ACTIVES</div>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:0.75rem;overflow-x:auto">
+      <button onclick="FW.showTab('blocked')" id="fw-tab-blocked" class="fw-tab-btn fw-tab-active">
+        <i class="fas fa-ban"></i> IPs Bloquées
+      </button>
+      <button onclick="FW.showTab('rules')" id="fw-tab-rules" class="fw-tab-btn">
+        <i class="fas fa-list"></i> Règles nftables
+      </button>
+      <button onclick="FW.showTab('whitelist')" id="fw-tab-whitelist" class="fw-tab-btn">
+        <i class="fas fa-shield-alt"></i> Whitelist
+      </button>
+      <button onclick="FW.showTab('blacklist')" id="fw-tab-blacklist" class="fw-tab-btn">
+        <i class="fas fa-skull"></i> Blacklist
+      </button>
+      <button onclick="FW.showTab('connections')" id="fw-tab-connections" class="fw-tab-btn">
+        <i class="fas fa-network-wired"></i> Connexions Live
+      </button>
+      <button onclick="FW.showTab('logs')" id="fw-tab-logs" class="fw-tab-btn">
+        <i class="fas fa-file-alt"></i> Logs
+      </button>
+    </div>
+
+    <!-- Panel: IPs Bloquées -->
+    <div id="fw-panel-blocked" class="fw-panel card">
+      <div class="card-header">
+        <div class="card-title">
+          <i class="fas fa-ban" style="color:var(--red)"></i> IPs Bloquées
+        </div>
+        <button onclick="FW.loadBlocked()" class="card-action">
+          <i class="fas fa-sync"></i> Actualiser
+        </button>
+      </div>
+      <div style="padding:0.5rem;border-bottom:1px solid var(--border)">
+        <input id="fw-blocked-search" type="text" placeholder="Rechercher une IP bloquée..."
+          oninput="FW.filterTable('fw-blocked-tbody', this.value)"
+          style="width:100%;background:var(--card2);border:1px solid var(--border);
+                 color:var(--text);padding:0.35rem 0.7rem;border-radius:var(--radius-sm);
+                 font-size:0.78rem;outline:none">
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>IP</th><th>RAISON</th><th>NIVEAU</th>
+              <th>TYPE</th><th>DATE</th><th>ACTION</th>
+            </tr>
+          </thead>
+          <tbody id="fw-blocked-tbody">
+            <tr><td colspan="6" class="no-data">
+              <i class="fas fa-spinner fa-spin"></i> Chargement...
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Panel: Règles nftables -->
+    <div id="fw-panel-rules" class="fw-panel card" style="display:none">
+      <div class="card-header">
+        <div class="card-title">
+          <i class="fas fa-list" style="color:var(--blue)"></i> Règles nftables
+        </div>
+        <button onclick="FW.loadRules()" class="card-action">
+          <i class="fas fa-sync"></i> Actualiser
+        </button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>ID</th><th>TYPE</th><th>IP</th><th>PORT</th>
+                <th>PROTO</th><th>DIR.</th><th>PRIORITÉ</th>
+                <th>STATUT</th><th>DATE</th><th>ACTION</th></tr>
+          </thead>
+          <tbody id="fw-rules-tbody">
+            <tr><td colspan="10" class="no-data">
+              <i class="fas fa-spinner fa-spin"></i> Chargement...
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Panel: Whitelist -->
+    <div id="fw-panel-whitelist" class="fw-panel card" style="display:none">
+      <div class="card-header">
+        <div class="card-title">
+          <i class="fas fa-shield-alt" style="color:var(--green)"></i> Whitelist
+        </div>
+        <span style="font-size:0.72rem;color:var(--muted)">IPs jamais bloquées automatiquement</span>
+      </div>
+      {% if user.role=='admin' %}
+      <div style="display:flex;gap:0.5rem;padding:0.75rem;border-bottom:1px solid var(--border);flex-wrap:wrap">
+        <input id="wl-ip-input" type="text" placeholder="Adresse IP (ex: 192.168.1.100)"
+          style="flex:1;min-width:160px;background:var(--card2);border:1px solid var(--border);
+                 color:var(--text);padding:0.4rem 0.75rem;border-radius:var(--radius-sm);
+                 font-size:0.78rem;outline:none">
+        <input id="wl-raison-input" type="text" placeholder="Raison (optionnel)"
+          style="flex:1;min-width:140px;background:var(--card2);border:1px solid var(--border);
+                 color:var(--text);padding:0.4rem 0.75rem;border-radius:var(--radius-sm);
+                 font-size:0.78rem;outline:none">
+        <button onclick="FW.addWhitelist()" class="btn btn-success btn-sm">
+          <i class="fas fa-plus"></i> Ajouter
+        </button>
+      </div>
+      {% endif %}
+      <div style="padding:0.5rem;border-bottom:1px solid var(--border)">
+        <input type="text" placeholder="Rechercher dans la whitelist..."
+          oninput="FW.filterTable('fw-wl-tbody', this.value)"
+          style="width:100%;background:var(--card2);border:1px solid var(--border);
+                 color:var(--text);padding:0.35rem 0.7rem;border-radius:var(--radius-sm);
+                 font-size:0.78rem;outline:none">
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>IP</th><th>RAISON</th><th>DATE AJOUT</th><th>ACTION</th></tr>
+          </thead>
+          <tbody id="fw-wl-tbody">
+            <tr><td colspan="4" class="no-data">
+              <i class="fas fa-spinner fa-spin"></i> Chargement...
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Panel: Blacklist -->
+    <div id="fw-panel-blacklist" class="fw-panel card" style="display:none">
+      <div class="card-header">
+        <div class="card-title">
+          <i class="fas fa-skull" style="color:var(--red)"></i> Blacklist
+        </div>
+        <span style="font-size:0.72rem;color:var(--muted)">IPs malveillantes connues</span>
+      </div>
+      {% if user.role=='admin' %}
+      <div style="display:flex;gap:0.5rem;padding:0.75rem;border-bottom:1px solid var(--border);flex-wrap:wrap">
+        <input id="bl-ip-input" type="text" placeholder="Adresse IP malveillante"
+          style="flex:1;min-width:160px;background:var(--card2);border:1px solid var(--border);
+                 color:var(--text);padding:0.4rem 0.75rem;border-radius:var(--radius-sm);
+                 font-size:0.78rem;outline:none">
+        <input id="bl-raison-input" type="text" placeholder="Raison (optionnel)"
+          style="flex:1;min-width:140px;background:var(--card2);border:1px solid var(--border);
+                 color:var(--text);padding:0.4rem 0.75rem;border-radius:var(--radius-sm);
+                 font-size:0.78rem;outline:none">
+        <button onclick="FW.addBlacklist()" class="btn btn-danger btn-sm">
+          <i class="fas fa-plus"></i> Ajouter
+        </button>
+        <button onclick="FW.blockFromBlacklist()" class="btn btn-sm"
+          style="background:var(--orange);color:#fff">
+          <i class="fas fa-ban"></i> Bloquer tout
+        </button>
+      </div>
+      {% endif %}
+      <div style="padding:0.5rem;border-bottom:1px solid var(--border)">
+        <input type="text" placeholder="Rechercher dans la blacklist..."
+          oninput="FW.filterTable('fw-bl-tbody', this.value)"
+          style="width:100%;background:var(--card2);border:1px solid var(--border);
+                 color:var(--text);padding:0.35rem 0.7rem;border-radius:var(--radius-sm);
+                 font-size:0.78rem;outline:none">
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>IP</th><th>RAISON</th><th>SOURCE</th><th>DATE</th><th>ACTION</th></tr>
+          </thead>
+          <tbody id="fw-bl-tbody">
+            <tr><td colspan="5" class="no-data">
+              <i class="fas fa-spinner fa-spin"></i> Chargement...
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Panel: Connexions Live -->
+    <div id="fw-panel-connections" class="fw-panel card" style="display:none">
+      <div class="card-header">
+        <div class="card-title">
+          <i class="fas fa-network-wired" style="color:var(--cyan)"></i>
+          Connexions Actives
+          <span class="badge badge-safe" style="margin-left:0.4rem">
+            <span class="live-dot" style="margin-right:3px"></span>LIVE
+          </span>
+        </div>
+        <button onclick="FW.loadConnections()" class="card-action">
+          <i class="fas fa-sync"></i> Rafraîchir
+        </button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>PROTO</th><th>ÉTAT</th><th>IP LOCALE</th><th>PORT</th>
+                <th>IP DISTANTE</th><th>PORT</th><th>PROCESSUS</th><th>STATUT</th></tr>
+          </thead>
+          <tbody id="fw-conn-tbody">
+            <tr><td colspan="8" class="no-data">
+              <i class="fas fa-spinner fa-spin"></i> Chargement...
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Panel: Logs -->
+    <div id="fw-panel-logs" class="fw-panel card" style="display:none">
+      <div class="card-header">
+        <div class="card-title">
+          <i class="fas fa-file-alt" style="color:var(--muted)"></i> Logs Firewall
+        </div>
+        <button onclick="FW.loadLogs()" class="card-action">
+          <i class="fas fa-sync"></i> Actualiser
+        </button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>TIMESTAMP</th><th>ACTION</th><th>SRC IP</th>
+                <th>DST IP</th><th>PORT</th><th>PROTO</th></tr>
+          </thead>
+          <tbody id="fw-logs-tbody">
+            <tr><td colspan="6" class="no-data">
+              <i class="fas fa-spinner fa-spin"></i> Chargement...
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+  <!-- ════ PAGE: ASSET INVENTORY ════ -->
+  <div id="page-assets" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Asset Inventory</div><div class="page-breadcrumb">Home › <span>Assets</span></div></div>
+    </div>
+    <div class="two-col">
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fas fa-server" style="color:var(--blue2)"></i> Équipements Surveillés</div><span class="badge badge-info">6</span></div>
+        <div id="assets-list"><p class="no-data"><i class="fas fa-spinner fa-spin"></i> Chargement...</p></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fas fa-chart-bar" style="color:var(--green2)"></i> État du Parc</div></div>
+        <div style="display:flex;flex-direction:column;gap:0.75rem;padding:0.5rem 0">
+          <div><div style="display:flex;justify-content:space-between;margin-bottom:0.3rem;font-size:0.72rem"><span style="color:var(--text2)">Online</span><span style="color:var(--green2);font-weight:700">4/6</span></div><div style="height:5px;background:var(--border);border-radius:3px"><div style="height:100%;width:67%;background:linear-gradient(90deg,#059669,#10b981);border-radius:3px"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;margin-bottom:0.3rem;font-size:0.72rem"><span style="color:var(--text2)">Warning</span><span style="color:var(--orange2);font-weight:700">1/6</span></div><div style="height:5px;background:var(--border);border-radius:3px"><div style="height:100%;width:17%;background:linear-gradient(90deg,#d97706,#f59e0b);border-radius:3px"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;margin-bottom:0.3rem;font-size:0.72rem"><span style="color:var(--text2)">Offline</span><span style="color:var(--red2);font-weight:700">1/6</span></div><div style="height:5px;background:var(--border);border-radius:3px"><div style="height:100%;width:17%;background:linear-gradient(90deg,#dc2626,#ef4444);border-radius:3px"></div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════ PAGE: MONITORING ════ -->
+  <div id="page-monitoring" class="page">
+    <div class="page-header">
+      <div><div class="page-title">System Monitoring</div><div class="page-breadcrumb">Home › <span>Monitoring</span></div></div>
+      <span class="badge badge-safe" id="sys-statut">NORMAL</span>
+    </div>
+    <div class="metrics-grid">
+      <div class="metric-card"><div class="metric-header"><div class="metric-title"><i class="fas fa-microchip" style="color:var(--blue2)"></i> CPU</div><span class="metric-value-big" id="cpu-val" style="color:var(--blue2)">—</span></div><div class="progress-bg"><div class="progress-fill" id="cpu-bar" style="width:0%;background:var(--blue)"></div></div></div>
+      <div class="metric-card"><div class="metric-header"><div class="metric-title"><i class="fas fa-memory" style="color:var(--purple2)"></i> RAM</div><span class="metric-value-big" id="ram-val" style="color:var(--purple2)">—</span></div><div class="progress-bg"><div class="progress-fill" id="ram-bar" style="width:0%;background:var(--purple)"></div></div><div style="font-size:0.65rem;color:var(--text2);margin-top:0.35rem" id="ram-detail">—</div></div>
+      <div class="metric-card"><div class="metric-header"><div class="metric-title"><i class="fas fa-hdd" style="color:var(--orange2)"></i> Disque</div><span class="metric-value-big" id="disk-val" style="color:var(--orange2)">—</span></div><div class="progress-bg"><div class="progress-fill" id="disk-bar" style="width:0%;background:var(--orange)"></div></div><div style="font-size:0.65rem;color:var(--text2);margin-top:0.35rem" id="disk-detail">—</div></div>
+      <div class="metric-card"><div class="metric-header"><div class="metric-title"><i class="fas fa-network-wired" style="color:var(--cyan2)"></i> Réseau</div></div><div style="display:flex;gap:2rem;margin-top:0.5rem"><div><div style="font-size:1.1rem;font-weight:800;color:var(--green2)" id="net-up">↑ —</div><div style="font-size:0.62rem;color:var(--text2);text-transform:uppercase">Envoyé</div></div><div><div style="font-size:1.1rem;font-weight:800;color:var(--blue2)" id="net-down">↓ —</div><div style="font-size:0.62rem;color:var(--text2);text-transform:uppercase">Reçu</div></div></div></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title"><i class="fas fa-chart-area" style="color:var(--blue2)"></i> System History</div></div>
+      <div class="chart-wrap" style="height:190px"><canvas id="monitorChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ════ PAGE: SMART CORRELATIONS ════ -->
+  <div id="page-smart-correlations" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Smart Correlations</div><div class="page-breadcrumb">Home › <span>Correlations</span></div></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title"><i class="fas fa-brain" style="color:var(--purple2)"></i> Événements Corrélés</div></div>
+      <div id="correlation-list"><p class="no-data"><i class="fas fa-spinner fa-spin"></i> Chargement...</p></div>
+    </div>
+  </div>
+
+  <!-- ════ PAGE: SOC TERMINAL ════ -->
+  <div id="page-soc-terminal" class="page">
+    <div class="page-header">
+      <div><div class="page-title">SOC Terminal</div><div class="page-breadcrumb">Home › <span>Live Logs</span></div></div>
+      <span class="badge badge-safe"><span class="live-dot" style="margin-right:4px"></span> STREAMING</span>
+    </div>
+    <div class="terminal">
+      <div class="terminal-header">
+        <div class="term-dot" style="background:#ef4444"></div>
+        <div class="term-dot" style="background:#f59e0b"></div>
+        <div class="term-dot" style="background:#10b981"></div>
+        <span style="margin-left:0.5rem;color:#4a5568;font-size:0.65rem">netsec@soc-platform:~$</span>
+        <span style="margin-left:auto;color:#4a5568;font-size:0.6rem"><span class="live-dot" style="display:inline-block;vertical-align:middle;margin-right:4px"></span> LIVE</span>
+      </div>
+      <div class="term-body" id="term-body">
+        <div class="term-line info">[INIT] Smart NetSec SOC Terminal — Prêt<span class="term-cursor"></span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════ PAGE: TIMELINE ════ -->
+  <div id="page-timeline" class="page">
+    <div class="page-header"><div><div class="page-title">Timeline</div><div class="page-breadcrumb">Home › <span>Timeline</span></div></div></div>
+    <div class="card">
+      <div class="card-header"><div class="card-title"><i class="fas fa-stream" style="color:var(--blue2)"></i> Attack Timeline</div></div>
+      <div id="timeline-list"><p class="no-data"><i class="fas fa-spinner fa-spin"></i> Chargement...</p></div>
+    </div>
+  </div>
+
+  <!-- ════ PAGE: AI ANALYSIS ════ -->
+  <div id="page-ai-page" class="page">
+    <div class="page-header"><div><div class="page-title">AI Analysis</div><div class="page-breadcrumb">Home › <span>AI</span></div></div></div>
+    <div style="display:grid;grid-template-columns:1fr 1.6fr;gap:1rem;align-items:start">
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="fas fa-chart-pie" style="color:var(--blue2)"></i> État Système</div></div>
+        <div id="ai-sys-resume"><p class="no-data"><i class="fas fa-spinner fa-spin"></i></p></div>
+      </div>
+      <div class="card" style="display:flex;flex-direction:column;min-height:400px">
+        <div class="card-header">
+          <div class="card-title"><i class="fas fa-robot" style="color:var(--blue2)"></i> NetSec AI Assistant</div>
+          <span style="color:var(--green2);font-size:0.68rem;display:flex;align-items:center;gap:0.25rem"><span class="live-dot"></span> Online</span>
+        </div>
+        <div id="ai-msgs-page" style="flex:1;min-height:230px;max-height:290px;background:var(--card2);border-radius:var(--radius-sm);border:1px solid var(--border);padding:0.7rem;overflow-y:auto;display:flex;flex-direction:column;gap:0.42rem;margin-bottom:0.65rem;scroll-behavior:smooth">
+          <div class="ai-row"><div class="ai-bub ai-bub-bot"><i class="fas fa-shield-alt" style="color:var(--blue2);margin-right:3px"></i> Bonjour ! Analyste SOC en ligne. Posez-moi une question sur votre réseau.</div></div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.45rem">
+          <button onclick="aiPageQ('État réseau')" class="ai-q">État réseau</button>
+          <button onclick="aiPageQ('Alertes critiques')" class="ai-q">Alertes</button>
+          <button onclick="aiPageQ('Recommandations')" class="ai-q">Conseils</button>
+          <button onclick="aiPageQ('Score sécurité')" class="ai-q">Score</button>
+          <button onclick="aiPageQ('SMB WannaCry')" class="ai-q">SMB</button>
+        </div>
+        <div style="display:flex;gap:0.35rem">
+          <input id="ai-in-page" type="text" style="flex:1;background:var(--card2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:0.42rem 0.7rem;font-size:0.75rem;outline:none" placeholder="Posez une question...">
+          <button onclick="aiPageSend()" class="ai-send"><i class="fas fa-paper-plane"></i></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════ PAGE: REPORTS ════ -->
+  <div id="page-reports" class="page">
+    <div class="page-header">
+      <div><div class="page-title">Reports</div><div class="page-breadcrumb">Home › <span>Reports</span></div></div>
+      {% if user.role=='admin' %}
+      <button id="btn-gen-report" onclick="Reports.generate()" class="btn btn-primary btn-sm">
+        <i class="fas fa-plus"></i> Nouveau rapport
+      </button>
+      {% endif %}
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title"><i class="fas fa-history" style="color:var(--blue2)"></i> Historique des rapports</div>
+        <div style="display:flex;gap:0.4rem">
+          <button class="filter-btn active" onclick="Reports.filterReports('all',this)">Tous</button>
+          <button class="filter-btn" onclick="Reports.filterReports('recent',this)">7 jours</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th><th>Date</th><th>Titre</th><th>Devices</th><th>Score</th>
+              {% if user.role=='admin' %}<th>Action</th>{% endif %}
+            </tr>
+          </thead>
+          <tbody id="reports-tbody">
+            <tr><td colspan="6" class="no-data"><i class="fas fa-spinner fa-spin"></i> Chargement...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div><!-- end main-content -->
+
+<!-- AI SIDEBAR -->
+<div class="ai-sidebar">
+  <button class="ai-toggle-btn" onclick="toggleAI()" aria-label="AI Assistant">
+    <i class="fas fa-robot"></i>
+    <span class="ai-toggle-label">AI</span>
+  </button>
+  <div id="ai-panel" class="ai-panel" role="dialog">
+    <div class="ai-panel-header">
+      <div class="ai-header-left">
+        <div class="ai-avatar"><i class="fas fa-robot"></i></div>
+        <div><div class="ai-panel-name">NetSec AI</div><div class="ai-panel-status"><span class="ai-dot"></span> En ligne</div></div>
+      </div>
+      <button class="ai-close" onclick="toggleAI()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="ai-sys-bar">
+      <div class="ai-sys-item"><span class="ai-sys-val" id="aisb-score">—</span><span class="ai-sys-lbl">Score</span></div>
+      <div class="ai-sys-item"><span class="ai-sys-val" id="aisb-dev">—</span><span class="ai-sys-lbl">Dev</span></div>
+      <div class="ai-sys-item"><span class="ai-sys-val" id="aisb-crit" style="color:var(--red2)">—</span><span class="ai-sys-lbl">Crit</span></div>
+      <div class="ai-sys-item"><span class="ai-sys-val" id="aisb-blk">—</span><span class="ai-sys-lbl">Block</span></div>
+    </div>
+    <div class="ai-msgs" id="ai-msgs">
+      <div class="ai-row"><div class="ai-bub ai-bub-bot"><i class="fas fa-shield-alt" style="color:var(--blue2);margin-right:3px"></i> Surveillance active. Comment puis-je vous aider ?</div></div>
+    </div>
+    <div class="ai-quick-row">
+      <button onclick="aiQ('État réseau')" class="ai-q">État</button>
+      <button onclick="aiQ('Alertes')" class="ai-q">Alertes</button>
+      <button onclick="aiQ('Recommandations')" class="ai-q">Conseils</button>
+      <button onclick="aiQ('Score')" class="ai-q">Score</button>
+    </div>
+    <div class="ai-input-row">
+      <input id="ai-in" type="text" placeholder="Question..." aria-label="Message">
+      <button onclick="aiSend()" class="ai-send"><i class="fas fa-paper-plane"></i></button>
+    </div>
+  </div>
+</div>
+
+<!-- HELP MODAL -->
+<div id="help-modal" class="modal-overlay" role="dialog">
+  <div class="modal-box" style="width:640px;max-height:90vh">
+    <div class="modal-header" style="background:linear-gradient(135deg,rgba(59,130,246,0.08),rgba(139,92,246,0.05))">
+      <div class="modal-title">
+        <div style="width:34px;height:34px;background:linear-gradient(135deg,#3b82f6,#8b5cf6);border-radius:9px;display:flex;align-items:center;justify-content:center;color:white;font-size:0.9rem;box-shadow:0 4px 12px rgba(59,130,246,0.35)">
+          <i class="fas fa-book-open"></i>
+        </div>
+        <div>
+          <div style="font-size:0.95rem;font-weight:800">Centre d'aide SOC</div>
+          <div style="font-size:0.62rem;color:var(--text2);font-weight:400">Smart NetSec SOC v3.0 — Documentation</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.5rem">
+        <span class="badge badge-safe"><span class="live-dot" style="margin-right:3px"></span>v3.0</span>
+        <button class="modal-close" onclick="toggleHelp()"><i class="fas fa-times"></i></button>
+      </div>
+    </div>
+    <div style="padding:0.75rem 1.25rem;border-bottom:1px solid var(--border);background:var(--card2)">
+      <div style="display:flex;align-items:center;gap:0.5rem;background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.4rem 0.75rem">
+        <i class="fas fa-search" style="color:var(--muted);font-size:0.8rem"></i>
+        <input type="text" id="help-search" placeholder="Rechercher dans la documentation..."
+          oninput="helpSearch(this.value)"
+          style="background:transparent;border:none;color:var(--text);font-size:0.8rem;outline:none;flex:1">
+      </div>
+    </div>
+    <div class="modal-body" style="padding:1rem 1.25rem;overflow-y:auto;max-height:calc(90vh - 140px)">
+      <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.75rem">
+        <button onclick="helpGoTo('nav')" style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.2);color:var(--blue2);padding:0.28rem 0.65rem;border-radius:20px;cursor:pointer;font-size:0.7rem;font-weight:600"><i class="fas fa-compass"></i> Navigation</button>
+        <button onclick="helpGoTo('firewall')" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);color:var(--red2);padding:0.28rem 0.65rem;border-radius:20px;cursor:pointer;font-size:0.7rem;font-weight:600"><i class="fas fa-fire-alt"></i> Firewall</button>
+        <button onclick="helpGoTo('snort')" style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);color:var(--orange2);padding:0.28rem 0.65rem;border-radius:20px;cursor:pointer;font-size:0.7rem;font-weight:600"><i class="fas fa-shield-virus"></i> Snort IDS</button>
+        <button onclick="helpGoTo('mitre')" style="background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.2);color:var(--purple2);padding:0.28rem 0.65rem;border-radius:20px;cursor:pointer;font-size:0.7rem;font-weight:600"><i class="fas fa-sitemap"></i> MITRE</button>
+        <button onclick="helpGoTo('shortcuts')" style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);color:var(--green2);padding:0.28rem 0.65rem;border-radius:20px;cursor:pointer;font-size:0.7rem;font-weight:600"><i class="fas fa-keyboard"></i> Raccourcis</button>
+      </div>
+
+      <div class="help-section" id="help-nav">
+        <div class="help-section-title" style="color:var(--blue2)"><i class="fas fa-compass"></i> Navigation — Onglets principaux</div>
+        <div class="help-grid">
+          <div class="help-item"><i class="fas fa-tachometer-alt" style="color:var(--blue2)"></i><span><strong>Overview</strong> — Vue générale SOC + KPIs</span></div>
+          <div class="help-item"><i class="fas fa-project-diagram" style="color:var(--blue2)"></i><span><strong>Network Map</strong> — Topologie réseau interactive</span></div>
+          <div class="help-item"><i class="fas fa-bell" style="color:var(--red2)"></i><span><strong>Alerts/IDS</strong> — Alertes Snort temps réel</span></div>
+          <div class="help-item"><i class="fas fa-exclamation-triangle" style="color:var(--orange2)"></i><span><strong>Incidents</strong> — Centre de réponse SOC</span></div>
+          <div class="help-item"><i class="fas fa-crosshairs" style="color:var(--red2)"></i><span><strong>Threat Intel</strong> — IPs suspectes + scoring</span></div>
+          <div class="help-item"><i class="fas fa-sitemap" style="color:var(--purple2)"></i><span><strong>MITRE ATT&amp;CK</strong> — Framework attaques</span></div>
+          <div class="help-item"><i class="fas fa-desktop" style="color:var(--blue2)"></i><span><strong>Devices</strong> — Appareils + scores sécurité</span></div>
+          <div class="help-item"><i class="fas fa-fire-alt" style="color:var(--red2)"></i><span><strong>Firewall</strong> — Règles nftables</span></div>
+          <div class="help-item"><i class="fas fa-server" style="color:var(--green2)"></i><span><strong>Assets</strong> — Inventaire équipements</span></div>
+          <div class="help-item"><i class="fas fa-chart-line" style="color:var(--blue2)"></i><span><strong>Monitoring</strong> — CPU/RAM/Disque/Réseau</span></div>
+          <div class="help-item"><i class="fas fa-brain" style="color:var(--purple2)"></i><span><strong>Correlations</strong> — Détection patterns</span></div>
+          <div class="help-item"><i class="fas fa-terminal" style="color:var(--green2)"></i><span><strong>SOC Terminal</strong> — Logs live</span></div>
+        </div>
+      </div>
+
+      <div class="help-section" id="help-firewall">
+        <div class="help-section-title" style="color:var(--red2)"><i class="fas fa-fire-alt"></i> Firewall nftables — Guide opérateur</div>
+        <div style="display:flex;flex-direction:column;gap:0.3rem">
+          <div class="help-item"><span style="background:var(--red2);color:#fff;padding:0.1rem 0.4rem;border-radius:4px;font-size:0.65rem;font-weight:700;margin-right:0.3rem">BLOCK</span>Bouton <strong>Bloquer IP</strong> → saisir IP + raison</div>
+          <div class="help-item"><span style="background:var(--green2);color:#fff;padding:0.1rem 0.4rem;border-radius:4px;font-size:0.65rem;font-weight:700;margin-right:0.3rem">UNBLOCK</span>Onglet IPs Bloquées → icône cadenas ouvert</div>
+          <div class="help-item"><span style="background:var(--blue2);color:#fff;padding:0.1rem 0.4rem;border-radius:4px;font-size:0.65rem;font-weight:700;margin-right:0.3rem">RÈGLE</span>Bouton <strong>Ajouter règle</strong> → formulaire nftables</div>
+          <div class="help-item"><span style="background:var(--orange2);color:#fff;padding:0.1rem 0.4rem;border-radius:4px;font-size:0.65rem;font-weight:700;margin-right:0.3rem">AUTO</span>Bouton <strong>Réponse Auto</strong> → bloque CRITICAL + HIGH automatiquement</div>
+          <div class="help-item"><i class="fas fa-shield-alt" style="color:var(--green2)"></i><span>Onglet <strong>Whitelist</strong> → IPs jamais bloquées</span></div>
+          <div class="help-item"><i class="fas fa-skull" style="color:var(--red2)"></i><span>Onglet <strong>Blacklist</strong> → IPs malveillantes connues</span></div>
+          <div class="help-item"><i class="fas fa-network-wired" style="color:var(--cyan2)"></i><span>Onglet <strong>Connexions Live</strong> → sessions actives (/proc/net)</span></div>
+        </div>
+      </div>
+
+      <div class="help-section" id="help-snort">
+        <div class="help-section-title" style="color:var(--orange2)"><i class="fas fa-shield-virus"></i> Snort 3 IDS — Guide opérateur</div>
+        <div style="display:flex;flex-direction:column;gap:0.3rem">
+          <div class="help-item"><i class="fas fa-play" style="color:var(--green2)"></i><span>Bouton <strong>Start</strong> → démarre Snort sur eth0</span></div>
+          <div class="help-item"><i class="fas fa-stop" style="color:var(--red2)"></i><span>Bouton <strong>Stop</strong> → arrête Snort IDS</span></div>
+          <div class="help-item"><i class="fas fa-bolt" style="color:var(--orange2)"></i><span>Bouton <strong>Auto-Block</strong> → bloque toutes les IPs CRITICAL + HIGH non traitées</span></div>
+          <div class="help-item"><i class="fas fa-sync" style="color:var(--blue2)"></i><span>Bouton <strong>Actualiser</strong> → recharge les alertes depuis la DB</span></div>
+          <div class="help-item"><i class="fas fa-upload" style="color:var(--blue2)"></i><span>Bouton <strong>Démo</strong> → injecte 10 alertes de démonstration</span></div>
+          <div class="help-item"><i class="fas fa-file-code" style="color:var(--green2)"></i><span>Bouton <strong>Reload Règles</strong> → lit <code>/etc/snort/rules/local.rules</code></span></div>
+          <div class="help-item"><i class="fas fa-filter" style="color:var(--purple2)"></i><span>Filtres → Niveau + Protocole + Recherche texte libre</span></div>
+        </div>
+      </div>
+
+      <div class="help-section" id="help-mitre">
+        <div class="help-section-title" style="color:var(--purple2)"><i class="fas fa-sitemap"></i> MITRE ATT&amp;CK — Framework</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.35rem;font-size:0.72rem">
+          <div class="help-item" style="flex-direction:column;align-items:flex-start">
+            <div style="font-weight:700;color:var(--text);margin-bottom:0.15rem">9 phases représentées</div>
+            <div style="color:var(--text2)">Recon → Resource Dev → Initial Access → Execution → Persistence → Privilege Esc → Defense Evasion → Lateral Move → Exfiltration</div>
+          </div>
+          <div class="help-item" style="flex-direction:column;align-items:flex-start">
+            <div style="font-weight:700;color:var(--red2);margin-bottom:0.15rem">Phases actives (rouge)</div>
+            <div style="color:var(--text2)">Initial Access, Execution, Defense Evasion — corrélées aux alertes Snort</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="help-section">
+        <div class="help-section-title" style="color:var(--orange2)"><i class="fas fa-shield-alt"></i> Niveaux d'alerte SOC</div>
+        <div style="display:flex;flex-direction:column;gap:0.25rem">
+          <div style="padding:0.38rem 0.65rem;background:rgba(239,68,68,0.07);border-radius:5px;border-left:2px solid var(--red);font-size:0.75rem;display:flex;align-items:center;gap:0.5rem"><i class="fas fa-skull" style="color:var(--red2)"></i><span><strong style="color:var(--red2)">CRITICAL P1</strong> — Blocage nftables automatique immédiat</span></div>
+          <div style="padding:0.38rem 0.65rem;background:rgba(245,158,11,0.07);border-radius:5px;border-left:2px solid var(--orange);font-size:0.75rem;display:flex;align-items:center;gap:0.5rem"><i class="fas fa-exclamation-triangle" style="color:var(--orange2)"></i><span><strong style="color:var(--orange2)">HIGH P2</strong> — Blocage + alerte dashboard analyste</span></div>
+          <div style="padding:0.38rem 0.65rem;background:rgba(202,138,4,0.07);border-radius:5px;border-left:2px solid #ca8a04;font-size:0.75rem;display:flex;align-items:center;gap:0.5rem"><i class="fas fa-exclamation-circle" style="color:#ca8a04"></i><span><strong style="color:#ca8a04">MEDIUM P3</strong> — Surveillance continue + log</span></div>
+          <div style="padding:0.38rem 0.65rem;background:rgba(59,130,246,0.07);border-radius:5px;border-left:2px solid var(--blue);font-size:0.75rem;display:flex;align-items:center;gap:0.5rem"><i class="fas fa-info-circle" style="color:var(--blue2)"></i><span><strong style="color:var(--blue2)">LOW P4</strong> — Log uniquement</span></div>
+        </div>
+      </div>
+
+      <div class="help-section" id="help-shortcuts">
+        <div class="help-section-title" style="color:var(--green2)"><i class="fas fa-keyboard"></i> Raccourcis clavier</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.35rem;font-size:0.75rem">
+          <div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem"><span style="background:var(--border);padding:0.1rem 0.4rem;border-radius:4px;font-family:monospace;font-size:0.7rem">Ctrl K</span><span>Focus barre de recherche</span></div>
+          <div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem"><span style="background:var(--border);padding:0.1rem 0.4rem;border-radius:4px;font-family:monospace;font-size:0.7rem">Echap</span><span>Fermer modal / aide</span></div>
+          <div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem"><span style="background:var(--border);padding:0.1rem 0.4rem;border-radius:4px;font-family:monospace;font-size:0.7rem">F5</span><span>Rafraîchir la page</span></div>
+          <div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem"><span style="background:var(--border);padding:0.1rem 0.4rem;border-radius:4px;font-family:monospace;font-size:0.7rem">Ctrl+Shift+R</span><span>Vider le cache</span></div>
+        </div>
+      </div>
+
+      <div style="text-align:center;color:var(--muted);font-size:0.68rem;padding-top:0.5rem;border-top:1px solid var(--border)">
+        <i class="fas fa-shield-alt" style="color:var(--blue)"></i>
+        Smart NetSec SOC Platform v3.0 — MRINO | BOUZIDI — Projet fin d'études
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ SCRIPTS — ordre critique ════ -->
+<script src="/static/js/app.js"></script>
+<script src="/static/js/charts.js"></script>
+<script src="/static/js/ai.js"></script>
+<script src="/static/js/reports.js"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+
+  // 1. Charts — données Jinja injectées au rendu Flask
+  if (window.Charts) {
+    Charts.init({
+      nb_appareils:    {{ stats.nb_appareils }},
+      nb_alertes_high: {{ stats.nb_alertes_high }},
+      nb_bloques:      {{ blocages|length }},
+      score_moyen:     {{ stats.score_moyen }},
+      nb_scans:        {{ stats.nb_scans }},
+      critical:        {{ suricata_stats.critical }},
+      high:            {{ suricata_stats.high }},
+      medium:          {{ suricata_stats.medium }},
+      low:             {{ suricata_stats.low }},
+    });
+    setTimeout(() => {
+      Charts.buildSeverityTrend();
+      Charts.buildTopProtocols();
+      Charts.buildTopPorts();
+      Charts.buildPredictive();
+    }, 300);
+    Charts.buildScoreRing({{ stats.score_moyen }});
+  }
+
+  // 2. Topologie réseau (définie dans app.js)
+  if (typeof initTopology === 'function') initTopology();
+
+  // 3. Trafic chart — page Network Topology
+  setTimeout(() => {
+    const el = document.getElementById('trafficChart');
+    if (!el) return;
+    const labels = Array.from({length:7}, (_, i) => {
+      const d = new Date(Date.now() - i * 86400000);
+      return d.toLocaleDateString('fr-FR', {day:'2-digit', month:'short'});
+    }).reverse();
+    const dark = (localStorage.getItem('netsec-theme') || 'dark') === 'dark';
+    const gc = dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.05)';
+    const tc = dark ? '#4a5568' : '#94a3b8';
+    new Chart(el, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {label:'Inbound', data:[320,410,380,450,490,420,510], borderColor:'#10b981', backgroundColor:'rgba(16,185,129,0.07)', borderWidth:2, fill:true, tension:0.4, pointRadius:3, pointBackgroundColor:'#10b981'},
+          {label:'Outbound',data:[180,220,200,260,280,240,290], borderColor:'#3b82f6', backgroundColor:'rgba(59,130,246,0.06)', borderWidth:2, fill:true, tension:0.4, pointRadius:3, pointBackgroundColor:'#3b82f6'},
+        ]
+      },
+      options: {
+        responsive:true, maintainAspectRatio:false, animation:{duration:600},
+        interaction:{mode:'index', intersect:false},
+        plugins:{
+          legend:{display:true, labels:{color:tc, font:{size:10}, boxWidth:10, usePointStyle:true}},
+          tooltip:{backgroundColor:dark?'#111827':'#fff', titleColor:dark?'#e2e8f0':'#0f172a', bodyColor:tc, borderColor:dark?'#1e2d45':'#e2e8f0', borderWidth:1, padding:8, cornerRadius:6}
+        },
+        scales:{
+          x:{grid:{color:gc, drawTicks:false}, ticks:{color:tc, font:{size:10}}, border:{display:false}},
+          y:{grid:{color:gc, drawTicks:false}, ticks:{color:tc, font:{size:10}, callback:v=>v+'/s'}, border:{display:false}, beginAtZero:true}
+        }
+      }
+    });
+  }, 400);
+
+  // 4. Reports — charger liste au démarrage
+  if (window.Reports) Reports.loadList();
+
+  // 5. IDS — init statut + stats sans bloquer
+  if (window.IDS) {
+    IDS.checkSnortStatus();
+    IDS.updateStats();
+    IDS.loadTopIPs();
+  }
+
+  // 6. Firewall — stats KPI
+  if (typeof updateFirewallStats === 'function') updateFirewallStats();
+
+});
+</script>
+</body>
+</html><div id="page-alerts" class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Alerts / IDS</div>
+        <div class="page-breadcrumb">Home › <span>Alerts</span></div>
+      </div>
+      {% if user.role=='admin' %}
+      <div style="display:flex;gap:0.5rem">
+        <button onclick="IDS.refresh()" class="btn btn-ghost btn-sm">
+          <i class="fas fa-sync"></i> Actualiser
+        </button>
+        <button onclick="IDS.autoBlock()" class="btn btn-danger btn-sm">
+          <i class="fas fa-bolt"></i> Auto-Block
+        </button>
+        <button onclick="IDS.importDemo()" class="btn btn-ghost btn-sm">
+          <i class="fas fa-download"></i> Démo
+        </button>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Snort Status + Stats -->
+    <div style="display:grid;grid-template-columns:200px 1fr;gap:0.9rem;align-items:start;margin-bottom:0.9rem">
+      <div class="card" style="padding:1rem">
+        <div style="font-size:0.8rem;font-weight:700;margin-bottom:0.5rem">
+          <i class="fas fa-circle" id="snort-status-dot" style="color:var(--muted);font-size:0.6rem"></i>
+          Snort IDS
+        </div>
+        <div id="snort-status-text" style="font-size:0.72rem;color:var(--muted);margin-bottom:0.75rem">
+          Vérification...
+        </div>
+        {% if user.role=='admin' %}
+        <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
+          <button onclick="IDS.startSnort()" class="btn btn-success btn-sm" style="font-size:0.7rem">
+            <i class="fas fa-play"></i> Start
+          </button>
+          <button onclick="IDS.stopSnort()" class="btn btn-danger btn-sm" style="font-size:0.7rem">
+            <i class="fas fa-stop"></i> Stop
+          </button>
+        </div>
+        {% endif %}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0.65rem">
+        <div class="card" style="text-align:center;padding:0.85rem">
+          <div style="font-size:1.5rem;font-weight:800;color:#ef4444" id="ids-stat-critical">{{ suricata_stats.critical }}</div>
+          <div style="font-size:0.6rem;color:var(--muted);text-transform:uppercase;font-weight:700">Critical</div>
+        </div>
+        <div class="card" style="text-align:center;padding:0.85rem">
+          <div style="font-size:1.5rem;font-weight:800;color:#f59e0b" id="ids-stat-high">{{ suricata_stats.high }}</div>
+          <div style="font-size:0.6rem;color:var(--muted);text-transform:uppercase;font-weight:700">High</div>
+        </div>
+        <div class="card" style="text-align:center;padding:0.85rem">
+          <div style="font-size:1.5rem;font-weight:800;color:#ca8a04" id="ids-stat-medium">{{ suricata_stats.medium }}</div>
+          <div style="font-size:0.6rem;color:var(--muted);text-transform:uppercase;font-weight:700">Medium</div>
+        </div>
+        <div class="card" style="text-align:center;padding:0.85rem">
+          <div style="font-size:1.5rem;font-weight:800;color:#3b82f6" id="ids-stat-low">{{ suricata_stats.low }}</div>
+          <div style="font-size:0.6rem;color:var(--muted);text-transform:uppercase;font-weight:700">Low</div>
+        </div>
+        <div class="card" style="text-align:center;padding:0.85rem">
+          <div style="font-size:1.5rem;font-weight:800;color:var(--text)" id="ids-stat-total">{{ suricata_stats.total }}</div>
+          <div style="font-size:0.6rem;color:var(--muted);text-transform:uppercase;font-weight:700">Total</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filtres -->
+    <div class="card" style="padding:0.75rem;margin-bottom:0.75rem">
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center">
+        <select id="ids-filter-level" onchange="IDS.applyFilters()"
+          style="background:var(--card2);border:1px solid var(--border);color:var(--text);
+                 padding:0.3rem 0.6rem;border-radius:var(--radius-sm);font-size:0.75rem;outline:none">
+          <option value="">Tous niveaux</option>
+          <option value="CRITICAL">Critical</option>
+          <option value="HIGH">High</option>
+          <option value="MEDIUM">Medium</option>
+          <option value="LOW">Low</option>
+        </select>
+        <select id="ids-filter-proto" onchange="IDS.applyFilters()"
+          style="background:var(--card2);border:1px solid var(--border);color:var(--text);
+                 padding:0.3rem 0.6rem;border-radius:var(--radius-sm);font-size:0.75rem;outline:none">
+          <option value="">Tous protocoles</option>
+          <option value="TCP">TCP</option>
+          <option value="UDP">UDP</option>
+          <option value="ICMP">ICMP</option>
+        </select>
+        <input id="ids-search" type="text" placeholder="Rechercher signature, IP..."
+          oninput="IDS.applyFilters()"
+          onkeydown="if(event.key==='Enter') IDS.applyFilters()"
+          style="background:var(--card2);border:1px solid var(--border);color:var(--text);
+                 padding:0.3rem 0.6rem;border-radius:var(--radius-sm);font-size:0.75rem;
+                 outline:none;flex:1;min-width:180px">
+        <button onclick="IDS.clearFilters()" class="card-action">
+          <i class="fas fa-times"></i> Reset
+        </button>
+        <span id="ids-count-display" style="font-size:0.7rem;color:var(--muted)"></span>
+      </div>
+    </div>
+
+    <!-- Alertes Snort -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <i class="fas fa-stream" style="color:var(--red)"></i>
+          Alertes Snort 3
+          <span class="badge badge-safe" style="margin-left:0.4rem;font-size:0.6rem">LIVE</span>
+        </div>
+        <button onclick="IDS.refresh()" class="card-action">
+          <i class="fas fa-sync"></i>
+        </button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Timestamp</th><th>Src IP</th><th>Port</th>
+              <th>Dst IP</th><th>Port</th><th>Proto</th>
+              <th>Prio</th><th>Signature</th><th>Niveau</th>
+              <th>Action</th>
+              {% if user.role=='admin' %}<th>Bloquer</th>{% endif %}
+            </tr>
+          </thead>
+          <tbody id="ids-alerts-tbody">
+            {% for a in suricata_alertes %}
+            <tr style="cursor:pointer"
+                onmouseover="this.style.background='rgba(59,130,246,0.05)'"
+                onmouseout="this.style.background=''">
+              <td style="color:var(--muted);font-size:0.65rem;white-space:nowrap">
+                {{ (a.timestamp or '')[:19] }}
+              </td>
+              <td><code style="color:var(--red);font-size:0.75rem">{{ a.src_ip or '—' }}</code></td>
+              <td style="font-size:0.72rem;color:var(--muted)">{{ a.src_port or '—' }}</td>
+              <td><code style="font-size:0.75rem">{{ a.dst_ip or a.dest_ip or '—' }}</code></td>
+              <td style="font-size:0.72rem;color:var(--muted)">{{ a.dst_port or '—' }}</td>
+              <td><span class="badge badge-info">{{ a.protocole or '—' }}</span></td>
+              <td style="font-size:0.75rem;font-weight:700;color:
+                {{ '#ef4444' if a.priority==1 else ('#f59e0b' if a.priority==2 else 'var(--muted)') }}">
+                P{{ a.priority or 3 }}
+              </td>
+              <td style="font-size:0.72rem;max-width:200px;overflow:hidden;
+                text-overflow:ellipsis;white-space:nowrap" title="{{ a.message or '' }}">
+                {{ a.message or '—' }}
+              </td>
+              <td>
+                <span class="badge badge-{{ 'critical' if a.niveau=='CRITICAL' else ('high' if a.niveau=='HIGH' else ('medium' if a.niveau=='MEDIUM' else 'low')) }}">
+                  {{ a.niveau or '—' }}
+                </span>
+              </td>
+              <td style="font-size:0.65rem;color:
+                {{ 'var(--red)' if a.action_prise=='BLOCKED' else ('var(--orange)' if a.action_prise=='MONITOR' else 'var(--green)') }}">
+                {{ a.action_prise or 'LOG' }}
+              </td>
+              {% if user.role=='admin' %}
+              <td>
+                <button class="action-btn red"
+                  onclick="Actions.bloquer('{{ a.src_ip or '' }}')"
+                  title="Bloquer {{ a.src_ip }}">
+                  <i class="fas fa-ban"></i>
+                </button>
+              </td>
+              {% endif %}
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="11" class="no-data">
+                <i class="fas fa-shield-alt" style="color:var(--green)"></i>
+                Aucune alerte —
+                <button onclick="IDS.importDemo()" class="card-action" style="margin-left:0.5rem">
+                  Charger alertes démo
+                </button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Top Attaquants + Règles Snort -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.9rem;margin-top:0.9rem">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <i class="fas fa-skull" style="color:var(--red)"></i> Top Attaquants
+          </div>
+          <button onclick="IDS.loadTopIPs()" class="card-action">
+            <i class="fas fa-sync"></i>
+          </button>
+        </div>
+        <div id="ids-top-ips">
+          <p class="no-data"><i class="fas fa-spinner fa-spin"></i> Chargement...</p>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <i class="fas fa-file-code" style="color:var(--blue)"></i> Règles Snort actives
+          </div>
+          {% if user.role=='admin' %}
+          <button onclick="IDS.reloadRules()" class="card-action">
+            <i class="fas fa-sync"></i> Reload
+          </button>
+          {% endif %}
+        </div>
+        <div id="ids-rules-list"
+          style="font-family:monospace;font-size:0.68rem;color:var(--green);
+                 background:#020408;border-radius:var(--radius-sm);padding:0.75rem;
+                 max-height:200px;overflow-y:auto">
+          <p style="color:var(--muted)">Cliquez Reload pour afficher les règles...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Alertes Sécurité générales -->
+    <div class="card" style="margin-top:0.9rem">
+      <div class="card-header">
+        <div class="card-title">
+          <i class="fas fa-bell" style="color:var(--orange)"></i> Alertes Sécurité
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Niveau</th><th>IP</th><th>Type</th>
+              <th>Message</th><th>Date</th>
+              {% if user.role=='admin' %}<th>Action</th>{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in alertes %}
+            <tr>
+              <td>
+                <span class="badge badge-{{ 'critical' if a.niveau=='CRITICAL' else ('high' if a.niveau=='HIGH' else ('medium' if a.niveau=='MEDIUM' else 'low')) }}">
+                  {{ a.niveau }}
+                </span>
+              </td>
+              <td><code>{{ a.ip or '—' }}</code></td>
+              <td style="font-size:0.7rem;color:var(--muted)">{{ a.type_alerte or '—' }}</td>
+              <td style="font-size:0.7rem;max-width:200px;overflow:hidden;
+                text-overflow:ellipsis;white-space:nowrap">{{ a.message or '—' }}</td>
+              <td style="color:var(--muted);font-size:0.65rem;white-space:nowrap">
+                {{ (a.date_alerte or '')[:16] }}
+              </td>
+              {% if user.role=='admin' %}
+              <td>
+                <button class="action-btn red"
+                  onclick="Actions.bloquer('{{ a.ip or '' }}')"
+                  title="Bloquer">
+                  <i class="fas fa-ban"></i>
+                </button>
+              </td>
+              {% endif %}
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="6" class="no-data">Aucune alerte</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+
+</body>
+</html>
